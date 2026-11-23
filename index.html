@@ -5,6 +5,10 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Canta ou Morre</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#07040f">
+<link rel="icon" href="icone-192.png">
+<link rel="apple-touch-icon" href="icone-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;900&family=Exo+2:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
@@ -631,6 +635,12 @@ $('btnEntrar').onclick = ()=>{
 };
 $('btnLimpar').onclick = ()=>{ try{ localStorage.removeItem('bkl_ranking'); }catch(e){} mostrarRanking(); };
 mostrarRanking();
+
+/* INÍCIO FUNÇÃO: registrarInstalacao — liga o service worker para o app poder ser instalado */
+if('serviceWorker' in navigator && location.protocol==='https:'){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+/* FIM FUNÇÃO: registrarInstalacao */
 }
 </script>
 </body>
