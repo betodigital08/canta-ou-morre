@@ -127,16 +127,27 @@ ol#ranking li b{font-family:Orbitron,sans-serif;color:var(--magenta);white-space
 #hudTV{display:none}
 body.modoTV{overflow:hidden}
 body.modoTV .card{backdrop-filter:none}
-.video>#hudTV{inset:auto;right:10px;top:10px;width:auto;height:auto;opacity:.88}
+.video>#hudTV{inset:auto;right:8px;top:8px;width:auto;height:auto}
 body.modoTV #caixaVideo{position:fixed;inset:0;z-index:15;margin:0;border:0;border-radius:0;aspect-ratio:auto;background:#000}
-body.modoTV #hudTV{display:flex;position:absolute;right:12px;bottom:12px;z-index:16;gap:10px;align-items:center;
-  background:rgba(7,4,15,.78);border:1px solid rgba(212,160,23,.5);border-radius:16px;padding:8px 12px;backdrop-filter:blur(4px)}
-#hudTV svg{width:54px;height:60px;flex:none}
-.hudInfo{width:180px}
-#hudStatus{font:600 13px "Exo 2",system-ui,sans-serif;color:var(--amarelo)}
-#hudTV .barra{height:8px;margin:6px 0}
+body.modoTV #hudTV{display:flex;position:absolute;right:8px;top:8px;bottom:auto;z-index:16;gap:8px;align-items:center;
+  background:rgba(7,4,15,.7);border:1px solid rgba(212,160,23,.45);border-radius:12px;padding:5px 8px}
+#hudTV svg{width:30px;height:34px;flex:none}
+.hudInfo{width:146px}
+#hudStatus{font:600 11px "Exo 2",system-ui,sans-serif;color:var(--amarelo);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#hudTV .barra{height:5px;margin:3px 0 4px}
 .hudBotoes{display:flex;gap:6px}
-.hudBotoes .btn{min-height:38px;padding:6px 10px;font-size:13px;flex:1}
+.hudBotoes .btn{min-height:26px;padding:2px 6px;font-size:11px;border-radius:8px;flex:1;box-shadow:none}
+/* Tela da nota com o celular deitado (ou tela baixa) */
+#telaNota{overflow-y:auto}
+@media (max-height:520px){
+  #caveiraNota{width:56px;height:63px}
+  #cantorNota{font-size:16px;margin:0}
+  .rotulo{font-size:12px}
+  #nota{font-size:min(30vh,34vw)}
+  #frase{font-size:clamp(16px,5vh,24px);margin:4px 0 2px;min-height:0}
+  #detalhes{font-size:13px;margin-bottom:8px}
+  #btnFechar{min-height:44px;font-size:15px;max-width:320px}
+}
 </style>
 </head>
 <body>
@@ -641,7 +652,7 @@ $('btnFechar').onclick = ()=>$('telaNota').classList.remove('mostrar');
 /* INÍCIO FUNÇÃO: atualizarHud — mostra no painel do Modo TV o que está acontecendo */
 function atualizarHud(){
   const cantando = fase==='cantando';
-  $('hudStatus').textContent = cantando ? 'Cantando... solta a voz!' : 'Pronto';
+  $('hudStatus').textContent = cantando ? 'Cantando...' : 'Pronto';
   $('btnTVAcao').textContent = cantando ? 'TERMINAR' : 'COMEÇAR';
   $('btnTVAcao').classList.toggle('rosa', cantando);
 }
