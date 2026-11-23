@@ -71,7 +71,7 @@ input:focus,button:focus-visible{outline:2px solid var(--magenta);outline-offset
 .barra i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--ciano),var(--magenta),var(--amarelo));transition:width .08s}
 canvas#trilha{width:100%;height:90px;display:block;border-radius:10px;background:rgba(0,0,0,.35);margin-top:10px}
 /* Tela da nota */
-#telaNota{position:fixed;inset:0;z-index:20;display:none;place-items:center;text-align:center;padding:20px;
+#telaNota{position:fixed;inset:0;z-index:40;display:none;place-items:center;text-align:center;padding:20px;
   background:radial-gradient(circle,rgba(42,15,85,.97),rgba(7,4,15,.98))}
 #telaNota.mostrar{display:grid}
 .rotulo{font-family:Orbitron,sans-serif;color:var(--fraco);font-size:16px}
@@ -123,6 +123,20 @@ ol#ranking li b{font-family:Orbitron,sans-serif;color:var(--magenta);white-space
 @media(prefers-reduced-motion:reduce){#nota.tremendo,.mand,.balanca,.morcego,.olhos,.gota,#abertura::before{animation:none}.barra i{transition:none}}
 @media(max-width:480px){.med b{font-size:18px}}
 .marca{margin:4px 0 0;font:600 14px "Exo 2",system-ui,sans-serif;letter-spacing:1px;color:#d4a017;text-align:center}
+/* ---------- Modo TV ---------- */
+#hudTV{display:none}
+body.modoTV{overflow:hidden}
+body.modoTV .card{backdrop-filter:none}
+.video>#hudTV{inset:auto;right:10px;top:10px;width:auto;height:auto;opacity:.88}
+body.modoTV #caixaVideo{position:fixed;inset:0;z-index:15;margin:0;border:0;border-radius:0;aspect-ratio:auto;background:#000}
+body.modoTV #hudTV{display:flex;position:absolute;right:12px;bottom:12px;z-index:16;gap:10px;align-items:center;
+  background:rgba(7,4,15,.78);border:1px solid rgba(212,160,23,.5);border-radius:16px;padding:8px 12px;backdrop-filter:blur(4px)}
+#hudTV svg{width:54px;height:60px;flex:none}
+.hudInfo{width:180px}
+#hudStatus{font:600 13px "Exo 2",system-ui,sans-serif;color:var(--amarelo)}
+#hudTV .barra{height:8px;margin:6px 0}
+.hudBotoes{display:flex;gap:6px}
+.hudBotoes .btn{min-height:38px;padding:6px 10px;font-size:13px;flex:1}
 </style>
 </head>
 <body>
@@ -192,8 +206,22 @@ ol#ranking li b{font-family:Orbitron,sans-serif;color:var(--magenta);white-space
         <input id="link" type="url" placeholder="https://youtube.com/watch?v=..." autocomplete="off">
         <button class="btn fantasma" id="btnCarregar">Carregar</button>
       </div>
-      <div class="video"><div id="player"><div class="vazio">O vídeo aparece aqui</div></div></div>
+      <div class="video" id="caixaVideo"><div id="player"><div class="vazio">O vídeo aparece aqui</div></div>
+        <!-- Painel pequeno que aparece no canto no Modo TV -->
+        <div id="hudTV">
+          <svg viewBox="0 0 100 112"><use href="#cranio"/><g id="mandTV"><use href="#mandibula"/></g></svg>
+          <div class="hudInfo">
+            <div id="hudStatus">Pronto</div>
+            <div class="barra"><i id="nivelTV"></i></div>
+            <div class="hudBotoes">
+              <button class="btn" id="btnTVAcao">COMEÇAR</button>
+              <button class="btn fantasma" id="btnTVSair">Sair</button>
+            </div>
+          </div>
+        </div>
+      </div>
       <p class="aviso escondido" id="avisoVideo"></p>
+      <button class="btn rosa" id="btnModoTV" style="width:100%;margin-top:10px">MODO TV (tela cheia, deitado)</button>
     </div>
     <div id="modoFora" class="escondido">
       <p class="dica">Coloque o vídeo para tocar na TV ou em outro celular. Aperte <b>Começar</b> aqui assim que a música iniciar e <b>Terminar</b> quando acabar.</p>
@@ -416,6 +444,8 @@ function ciclo(){
   // A caveira do palco abre a boca conforme o volume
   const boca = fase==='cantando' ? Math.max(0, Math.min(14, (acima-6)*0.6)) : 0;
   $('mandViva').setAttribute('transform', 'translate(0,'+boca.toFixed(1)+')');
+  $('mandTV').setAttribute('transform', 'translate(0,'+boca.toFixed(1)+')');
+  $('nivelTV').style.width = $('nivel').style.width;
 
   if(fase==='calibrando'){ calib.push(db); return; }
   if(fase!=='cantando') return;
@@ -483,6 +513,7 @@ async function comecar(){
   pisoRuido = Math.max(-75, ord[Math.floor(ord.length/2)] || -60);
 
   fase = 'cantando';
+  atualizarHud();
   $('status').textContent = '🎤 SOLTA A VOZ!';
   if(modo==='video' && player) player.playVideo();
 }
@@ -546,6 +577,7 @@ async function terminar(){
   if(fase!=='cantando' && fase!=='calibrando') return;
   const estavaCalibrando = fase==='calibrando';
   fase = 'parado';
+  atualizarHud();
   if(player && modo==='video'){ try{ player.pauseVideo(); }catch(e){} }
   try{ travaTela && travaTela.release(); }catch(e){}
   $('btnTerminar').classList.add('escondido');
@@ -605,6 +637,38 @@ $('link').addEventListener('keydown', e=>{ if(e.key==='Enter') carregarVideo(); 
 $('btnComecar').onclick = comecar;
 $('btnTerminar').onclick = terminar;
 $('btnFechar').onclick = ()=>$('telaNota').classList.remove('mostrar');
+
+/* INÍCIO FUNÇÃO: atualizarHud — mostra no painel do Modo TV o que está acontecendo */
+function atualizarHud(){
+  const cantando = fase==='cantando';
+  $('hudStatus').textContent = cantando ? 'Cantando... solta a voz!' : 'Pronto';
+  $('btnTVAcao').textContent = cantando ? 'TERMINAR' : 'COMEÇAR';
+  $('btnTVAcao').classList.toggle('rosa', cantando);
+}
+/* FIM FUNÇÃO: atualizarHud */
+
+/* INÍCIO FUNÇÃO: entrarModoTV — vídeo em tela cheia, com o celular deitado */
+async function entrarModoTV(){
+  if(!playerPronto){ mostrarAviso('Carregue um vídeo primeiro (cole o link e toque em Carregar).'); return; }
+  document.body.classList.add('modoTV');
+  try{ await document.documentElement.requestFullscreen(); }catch(e){}
+  try{ await screen.orientation.lock('landscape'); }catch(e){}
+  atualizarHud();
+}
+/* FIM FUNÇÃO: entrarModoTV */
+
+/* INÍCIO FUNÇÃO: sairModoTV — volta ao app normal, em pé */
+async function sairModoTV(){
+  document.body.classList.remove('modoTV');
+  try{ screen.orientation.unlock(); }catch(e){}
+  if(document.fullscreenElement){ try{ await document.exitFullscreen(); }catch(e){} }
+}
+/* FIM FUNÇÃO: sairModoTV */
+
+$('btnModoTV').onclick = entrarModoTV;
+$('btnTVSair').onclick = sairModoTV;
+$('btnTVAcao').onclick = ()=>{ fase==='cantando' ? terminar() : comecar(); };
+document.addEventListener('fullscreenchange', ()=>{ if(!document.fullscreenElement) document.body.classList.remove('modoTV'); });
 /* INÍCIO FUNÇÃO: tocarTrovao — estrondo grave de tempestade na abertura */
 function tocarTrovao(){
   try{
