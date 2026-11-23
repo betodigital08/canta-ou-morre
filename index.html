@@ -100,6 +100,8 @@ ol#ranking li b{font-family:Orbitron,sans-serif;color:var(--magenta);white-space
 .palcoTopo{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:6px}
 .palcoTopo svg{width:70px;height:78px;flex:none;filter:drop-shadow(0 0 12px rgba(255,235,190,.28))}
 .palcoTopo .status{margin:0;text-align:left}
+@keyframes gargalha{0%,100%{transform:rotate(0)}25%{transform:rotate(-7deg) translateY(-3px)}75%{transform:rotate(7deg) translateY(-3px)}}
+#caveiraNota.gargalha{animation:gargalha .2s linear infinite}
 #caveiraNota{width:110px;height:124px;filter:drop-shadow(0 0 18px rgba(255,235,190,.28))}
 /* Abertura */
 #abertura{position:fixed;inset:0;z-index:30;display:grid;place-items:center;text-align:center;padding:20px;
@@ -148,6 +150,16 @@ body.modoTV #hudTV{display:flex;position:absolute;right:8px;top:8px;bottom:auto;
   #detalhes{font-size:13px;margin-bottom:8px}
   #btnFechar{min-height:44px;font-size:15px;max-width:320px}
 }
+/* ---------- Termômetro vocal ---------- */
+.termo{display:flex;align-items:center;gap:8px;margin-top:12px}
+.termoTrilho{position:relative;flex:1;height:8px;border-radius:6px;overflow:hidden;
+  background:linear-gradient(90deg,#8a0000,#e03a00 30%,#ffb000 65%,#ffe066 85%,#d4a017)}
+.termoTrilho i{position:absolute;top:0;right:0;bottom:0;width:100%;background:rgba(12,8,20,.88);transition:width .4s ease}
+.termo span{font:700 12px Orbitron,sans-serif;color:var(--fraco);min-width:22px;text-align:right}
+.termo.mini{margin-top:5px;gap:5px}
+.termo.mini .termoTrilho{height:4px}
+.termo.mini span{font-size:9px;min-width:16px}
+@media(prefers-reduced-motion:reduce){.termoTrilho i{transition:none}}
 </style>
 </head>
 <body>
@@ -228,6 +240,7 @@ body.modoTV #hudTV{display:flex;position:absolute;right:8px;top:8px;bottom:auto;
               <button class="btn" id="btnTVAcao">COMEÇAR</button>
               <button class="btn fantasma" id="btnTVSair">Sair</button>
             </div>
+            <div class="termo mini" title="Termômetro vocal"><div class="termoTrilho"><i id="termoCapaTV"></i></div><span id="termoNumTV">--</span></div>
           </div>
         </div>
       </div>
@@ -259,6 +272,8 @@ body.modoTV #hudTV{display:flex;position:absolute;right:8px;top:8px;bottom:auto;
       <div class="med"><b id="mEnergia">0%</b><span>Energia</span></div>
       <div class="med"><b id="mEstab">0%</b><span>Firmeza</span></div>
     </div>
+    <div class="termo " title="Termômetro vocal"><div class="termoTrilho"><i id="termoCapa"></i></div><span id="termoNum">--</span></div>
+    <p class="dica" style="margin-top:2px;font-size:12px">Termômetro vocal: do vermelho (morrendo) ao dourado (imortal)</p>
     <canvas id="trilha"></canvas>
     <div style="margin-top:14px">
       <button class="btn grande" id="btnComecar">COMEÇAR</button>
@@ -485,6 +500,7 @@ function ciclo(){
     $('mEnergia').textContent = Math.round(p.energia*100)+'%';
     $('mEstab').textContent = Math.round(p.firmeza*100)+'%';
     desenharTrilha();
+    if(est.quadros > 20) mostrarTermometro(notaParcial());
   }
 }
 /* FIM FUNÇÃO: ciclo */
@@ -512,6 +528,7 @@ async function comecar(){
   if(!await ligarMicrofone()) return;
   try{ travaTela = await navigator.wakeLock.request('screen'); }catch(e){}
   est = novasEstatisticas(); trilha.length = 0; calib = [];
+  mostrarTermometro(null);
   $('btnComecar').classList.add('escondido');
   $('btnTerminar').classList.remove('escondido');
   if(!timer) timer = setInterval(ciclo, 50);
@@ -533,6 +550,24 @@ async function comecar(){
 /* INÍCIO FUNÇÃO: esperar — pausa por alguns milissegundos */
 function esperar(ms){ return new Promise(r=>setTimeout(r,ms)); }
 /* FIM FUNÇÃO: esperar */
+
+/* INÍCIO FUNÇÃO: notaParcial — nota até o momento, para o termômetro (sem sorteio) */
+function notaParcial(){
+  const p = calcularPartes();
+  const q = Math.max(est.quadros,1);
+  if(est.comVoz/q < 0.05) return Math.round(20*Math.min(1, est.comVoz/Math.max(1,q*0.05)));
+  return Math.min(100, Math.round(30 + (0.4*p.presenca + 0.3*p.energia + 0.3*p.firmeza)*70));
+}
+/* FIM FUNÇÃO: notaParcial */
+
+/* INÍCIO FUNÇÃO: mostrarTermometro — enche o termômetro até a nota (0 a 100) */
+function mostrarTermometro(n){
+  ['', 'TV'].forEach(suf=>{
+    $('termoCapa'+suf).style.width = (n==null ? 100 : 100-n) + '%';
+    $('termoNum'+suf).textContent = n==null ? '--' : n;
+  });
+}
+/* FIM FUNÇÃO: mostrarTermometro */
 
 /* INÍCIO FUNÇÃO: calcularNota — nota final de 0 a 100 */
 function calcularNota(){
@@ -583,6 +618,40 @@ function tocarAplausos(){
 }
 /* FIM FUNÇÃO: tocarAplausos */
 
+/* INÍCIO FUNÇÃO: tocarRisada — gargalhada sinistra "HA HA HA" sintetizada, com eco */
+function tocarRisada(){
+  try{
+    const t0 = ctx.currentTime + 0.15;
+    // eco de cripta
+    const eco = ctx.createDelay(); eco.delayTime.value = 0.23;
+    const volta = ctx.createGain(); volta.gain.value = 0.38;
+    const saida = ctx.createGain(); saida.gain.value = 0.9;
+    eco.connect(volta).connect(eco); eco.connect(saida); saida.connect(ctx.destination);
+    const silabas = 9;
+    for(let k=0;k<silabas;k++){
+      const ini = t0 + k*0.2, dur = 0.16;
+      const tom = 170 - k*8;                       // a risada vai ficando mais grave
+      // voz: onda áspera passando por "formantes" do som de A
+      const osc = ctx.createOscillator(); osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(tom*1.15, ini);
+      osc.frequency.exponentialRampToValueAtTime(tom*0.85, ini+dur);
+      const env = ctx.createGain(); env.gain.setValueAtTime(0, ini);
+      env.gain.linearRampToValueAtTime(0.5, ini+0.03);
+      env.gain.exponentialRampToValueAtTime(0.001, ini+dur);
+      [ [750,6,1], [1150,8,.6], [2500,10,.25] ].forEach(([fq,q,g])=>{
+        const bp = ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=fq; bp.Q.value=q;
+        const gg = ctx.createGain(); gg.gain.value = g*1.6;
+        osc.connect(bp).connect(gg).connect(env);
+      });
+      env.connect(ctx.destination); env.connect(eco);
+      osc.start(ini); osc.stop(ini+dur+0.02);
+      // o "H" soprado no começo de cada HA
+      somRuido(ini-0.04, 0.06, 0.12, 1800);
+    }
+  }catch(e){}
+}
+/* FIM FUNÇÃO: tocarRisada */
+
 /* INÍCIO FUNÇÃO: terminar — para de ouvir e mostra a nota com suspense */
 async function terminar(){
   if(fase!=='cantando' && fase!=='calibrando') return;
@@ -612,6 +681,7 @@ async function terminar(){
   $('frase').textContent = fraseDaNota(nota);
   $('detalhes').textContent = 'Presença '+Math.round(p.presenca*100)+'% · Energia '+Math.round(p.energia*100)+'% · Firmeza '+Math.round(p.firmeza*100)+'%';
   if(nota>=70) tocarAplausos();
+  else if(nota<55){ tocarRisada(); $('caveiraNota').classList.add('gargalha'); setTimeout(()=>$('caveiraNota').classList.remove('gargalha'), 3200); }
   salvarNoRanking(nome, nota);
 }
 /* FIM FUNÇÃO: terminar */
