@@ -323,8 +323,8 @@ let est = null;              // estatísticas da apresentação
 const buf = new Float32Array(2048);
 const trilha = [];
 const freqBuf = new Float32Array(1024);   // "fatias" de frequência do som
-let historico = [], nivelSuave = null;    // os graves dos últimos 2 segundos, para saber o volume da música
-let perfil = null, perfilN = 0, somaPerfil = 1e-12, gravesIntro = 0;   // o "formato" da música aprendido na introdução           // histórico de tons para o desenho
+let media = null, intro = null, introN = 0, introPronta = false, janela = [];   // o som da música: aprendido na introdução e em média longa
+let gravesJan = [], gravesIntro = 0;                               // graves, para saber o volume da música           // histórico de tons para o desenho
 
 /* INÍCIO FUNÇÃO: novasEstatisticas — zera os contadores da apresentação */
 function novasEstatisticas(){
@@ -451,51 +451,57 @@ function faixaVoz(){
 
 /* INÍCIO FUNÇÃO: medirVoz — quanto de VOZ existe acima do som da música (em dB)
    Como funciona:
-   1) Na introdução (só música), o app aprende o "formato" do som da música: quanto de som
-      existe em cada faixa de frequência da voz (300 a 3500 Hz).
-   2) Para saber se a música ficou mais alta ou mais baixa (refrão, final), ele acompanha os
-      GRAVES (contrabaixo e bumbo, 40 a 150 Hz), onde a voz quase não chega. Assim, cantar
-      forte não engana o app achando que foi a música que aumentou.
-   Só conta como voz o som que aparece ACIMA do que a música sozinha teria. */
+   1) Na introdução (só música), aprende o som MÉDIO da música em cada faixa de frequência
+      da voz (300 a 3500 Hz). A média cobre as trocas de acorde.
+   2) Acompanha o volume da música pelos GRAVES (contrabaixo e bumbo, 40 a 150 Hz), onde a voz
+      quase não chega: se o refrão ficar mais alto, o app sabe que foi a música.
+   3) Guarda também o nível MAIS BAIXO de cada faixa nos últimos 6 segundos: instrumentos que
+      entram depois e ficam tocando sem parar (teclado, cordas) viram "música" sozinhos. A voz
+      tem pausas para respirar e troca de nota, então não vira "chão".
+   Só conta como voz o som que aparece bem ACIMA do que a música teria. */
 function medirVoz(){
   analisador.getFloatFrequencyData(freqBuf);
   const [ini, fim] = faixaVoz();
+  const n = fim - ini + 1;
   const hz = ctx.sampleRate/analisador.fftSize;
   const gIni = Math.max(1, Math.floor(40/hz)), gFim = Math.ceil(150/hz);
   let graves = 0;
   for(let b=gIni;b<=gFim;b++) graves += Math.pow(10, freqBuf[b]/10);
-  historico.push(graves);
-  if(historico.length > 40) historico.shift();                // graves dos últimos 2 segundos
-  if(fase==='calibrando'){                                     // aprende o formato da música
-    if(!perfil) perfil = new Float64Array(freqBuf.length);
-    for(let b=ini;b<=fim;b++) perfil[b] += Math.pow(10, freqBuf[b]/10);
-    perfilN++; gravesIntro += graves;
+  gravesJan.push(graves); if(gravesJan.length > 40) gravesJan.shift();      // graves dos últimos 2 s
+  if(!media || media.length !== n){ media = new Float64Array(n); intro = new Float64Array(n); introN = 0; gravesIntro = 0; janela = []; }
+  const atual = new Float64Array(n);
+  for(let i=0;i<n;i++){
+    const p = Math.pow(10, freqBuf[ini+i]/10);
+    media[i] = media[i] ? 0.6*media[i] + 0.4*p : p;    // alisado, para não pular a cada batida
+    atual[i] = p;
+  }
+  janela.push(Float64Array.from(media)); if(janela.length > 120) janela.shift();   // 6 segundos
+
+  if(fase==='calibrando'){
+    for(let i=0;i<n;i++) intro[i] += atual[i];
+    introN++; gravesIntro += graves;
     return 0;
   }
-  if(!perfil) return 0;
-  // quanto a música mudou de volume desde a introdução (pelos graves)
-  const gravesAgora = historico.reduce((x,y)=>x+y,0)/historico.length;
-  const ganho = Math.min(8, Math.max(0.25, gravesAgora/Math.max(gravesIntro,1e-12)));
-  // compara com o formato da música, já no volume atual
-  let excesso = 0;
-  for(let b=ini;b<=fim;b++){
-    const sobra = Math.pow(10, freqBuf[b]/10) - 2.0*ganho*perfil[b];
+  if(!introN) return 0;
+  if(introN > 0 && !introPronta){                     // fecha o aprendizado da introdução
+    for(let i=0;i<n;i++) intro[i] = Math.max(intro[i]/introN, 1e-12);
+    gravesIntro = Math.max(gravesIntro/introN, 1e-12);
+    introPronta = true;
+  }
+  const gravesAgora = gravesJan.reduce((x,y)=>x+y,0)/gravesJan.length;
+  const ganho = Math.min(8, Math.max(0.25, gravesAgora/gravesIntro));
+  let excesso = 0, somaRef = 0;
+  for(let i=0;i<n;i++){
+    let chao = Infinity;                                 // o mais baixo dos últimos 6 s
+    for(let k=0;k<janela.length;k++) if(janela[k][i] < chao) chao = janela[k][i];
+    const ref = 2.0*Math.max(ganho*intro[i], 1.5*chao);  // o que a música sozinha teria
+    somaRef += ref;
+    const sobra = atual[i] - ref;
     if(sobra > 0) excesso += sobra;
   }
-  return 10*Math.log10(1 + excesso/(ganho*somaPerfil));
+  return 10*Math.log10(1 + excesso/somaRef);
 }
 /* FIM FUNÇÃO: medirVoz */
-
-/* INÍCIO FUNÇÃO: fecharPerfil — termina de aprender a música da introdução */
-function fecharPerfil(){
-  if(!perfil || !perfilN) return;
-  const [ini, fim] = faixaVoz();
-  let soma = 0;
-  for(let b=ini;b<=fim;b++){ perfil[b] = Math.max(perfil[b]/perfilN, 1e-12); soma += perfil[b]; }
-  somaPerfil = Math.max(soma, 1e-12);
-  gravesIntro = Math.max(gravesIntro/perfilN, 1e-12);
-}
-/* FIM FUNÇÃO: fecharPerfil */
 
 /* INÍCIO FUNÇÃO: detectarTom — descobre a nota (frequência) que está soando */
 function detectarTom(){
@@ -596,7 +602,7 @@ async function comecar(){
   if(!timer) timer = setInterval(ciclo, 50);
 
   // Calibração: ouve 5 segundos da introdução (só a música) para aprender o "som da música"
-  historico = []; nivelSuave = null; perfil = null; perfilN = 0; gravesIntro = 0;
+  media = null; intro = null; introN = 0; introPronta = false; janela = []; gravesJan = []; gravesIntro = 0;
   fase = 'calibrando';
   if(modo==='video' && player) player.playVideo();
   for(let s=5; s>0; s--){
@@ -605,7 +611,6 @@ async function comecar(){
     await esperar(1000);
   }
   if(fase!=='calibrando') return;
-  fecharPerfil();
 
   fase = 'cantando';
   atualizarHud();
