@@ -160,6 +160,9 @@ body.modoTV #hudTV{display:flex;position:absolute;right:8px;top:8px;bottom:auto;
 .termo.mini .termoTrilho{height:4px}
 .termo.mini span{font-size:9px;min-width:16px}
 @media(prefers-reduced-motion:reduce){.termoTrilho i{transition:none}}
+.opcao{display:flex;gap:10px;align-items:flex-start;margin:12px 0 0;color:var(--texto);font-size:15px;cursor:pointer}
+.opcao input{width:22px;height:22px;min-height:0;margin:1px 0 0;flex:none;accent-color:#d4a017}
+.opcao small{color:var(--fraco);font-size:13px}
 </style>
 </head>
 <body>
@@ -248,7 +251,7 @@ body.modoTV #hudTV{display:flex;position:absolute;right:8px;top:8px;bottom:auto;
       <button class="btn rosa" id="btnModoTV" style="width:100%;margin-top:10px">MODO TV (tela cheia, deitado)</button>
     </div>
     <div id="modoFora" class="escondido">
-      <p class="dica">Coloque o vídeo para tocar na TV ou em outro celular. Aperte <b>Começar</b> aqui assim que a música iniciar e <b>Terminar</b> quando acabar.</p>
+      <p class="dica">Coloque o vídeo para tocar na TV ou em outro celular. Aperte <b>Começar</b> aqui assim que a <b>introdução</b> da música iniciar (antes de cantar) e <b>Terminar</b> quando acabar.</p>
     </div>
   </section>
 
@@ -256,7 +259,8 @@ body.modoTV #hudTV{display:flex;position:absolute;right:8px;top:8px;bottom:auto;
   <section class="card">
     <h2><svg class="ico" viewBox="0 0 100 112"><use href="#cav"/></svg>2. Quem vai cantar?</h2>
     <input id="cantor" placeholder="Nome do cantor" maxlength="30">
-    <p class="dica">Deixe o celular entre você e a caixa de som, de 1 a 2 metros.</p>
+    <label class="opcao"><input type="checkbox" id="filtroVoz"><span>Filtro de voz do celular<br><small>Experimental: teste ligado e desligado e veja qual acerta mais.</small></span></label>
+    <p class="dica">Deixe o celular perto de quem canta e longe da caixa de som. Ao tocar em Começar, não cante nos primeiros 5 segundos: o app está aprendendo o som da música.</p>
   </section>
 
   <!-- 3. PALCO AO VIVO -->
@@ -317,7 +321,10 @@ let pisoRuido = -60;         // volume do ambiente em silêncio (dB)
 let calib = [];
 let est = null;              // estatísticas da apresentação
 const buf = new Float32Array(2048);
-const trilha = [];           // histórico de tons para o desenho
+const trilha = [];
+const freqBuf = new Float32Array(1024);   // "fatias" de frequência do som
+let historico = [], nivelSuave = null;    // os graves dos últimos 2 segundos, para saber o volume da música
+let perfil = null, perfilN = 0, somaPerfil = 1e-12, gravesIntro = 0;   // o "formato" da música aprendido na introdução           // histórico de tons para o desenho
 
 /* INÍCIO FUNÇÃO: novasEstatisticas — zera os contadores da apresentação */
 function novasEstatisticas(){
@@ -412,7 +419,8 @@ async function ligarMicrofone(){
   if(ctx.state==='suspended') await ctx.resume();
   if(fluxo) return true;
   try{
-    fluxo = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+    const filtro = $('filtroVoz').checked;
+    fluxo = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:filtro,noiseSuppression:filtro,autoGainControl:false}});
   }catch(e){
     $('status').textContent = 'Preciso do microfone! Libere a permissão no navegador.';
     return false;
@@ -434,6 +442,61 @@ function medirVolume(){
 }
 /* FIM FUNÇÃO: medirVolume */
 
+/* INÍCIO FUNÇÃO: faixaVoz — quais "fatias" de frequência correspondem à voz (300 a 3500 Hz) */
+function faixaVoz(){
+  const hz = ctx.sampleRate/analisador.fftSize;
+  return [Math.max(1, Math.floor(300/hz)), Math.min(freqBuf.length-1, Math.ceil(3500/hz))];
+}
+/* FIM FUNÇÃO: faixaVoz */
+
+/* INÍCIO FUNÇÃO: medirVoz — quanto de VOZ existe acima do som da música (em dB)
+   Como funciona:
+   1) Na introdução (só música), o app aprende o "formato" do som da música: quanto de som
+      existe em cada faixa de frequência da voz (300 a 3500 Hz).
+   2) Para saber se a música ficou mais alta ou mais baixa (refrão, final), ele acompanha os
+      GRAVES (contrabaixo e bumbo, 40 a 150 Hz), onde a voz quase não chega. Assim, cantar
+      forte não engana o app achando que foi a música que aumentou.
+   Só conta como voz o som que aparece ACIMA do que a música sozinha teria. */
+function medirVoz(){
+  analisador.getFloatFrequencyData(freqBuf);
+  const [ini, fim] = faixaVoz();
+  const hz = ctx.sampleRate/analisador.fftSize;
+  const gIni = Math.max(1, Math.floor(40/hz)), gFim = Math.ceil(150/hz);
+  let graves = 0;
+  for(let b=gIni;b<=gFim;b++) graves += Math.pow(10, freqBuf[b]/10);
+  historico.push(graves);
+  if(historico.length > 40) historico.shift();                // graves dos últimos 2 segundos
+  if(fase==='calibrando'){                                     // aprende o formato da música
+    if(!perfil) perfil = new Float64Array(freqBuf.length);
+    for(let b=ini;b<=fim;b++) perfil[b] += Math.pow(10, freqBuf[b]/10);
+    perfilN++; gravesIntro += graves;
+    return 0;
+  }
+  if(!perfil) return 0;
+  // quanto a música mudou de volume desde a introdução (pelos graves)
+  const gravesAgora = historico.reduce((x,y)=>x+y,0)/historico.length;
+  const ganho = Math.min(8, Math.max(0.25, gravesAgora/Math.max(gravesIntro,1e-12)));
+  // compara com o formato da música, já no volume atual
+  let excesso = 0;
+  for(let b=ini;b<=fim;b++){
+    const sobra = Math.pow(10, freqBuf[b]/10) - 2.0*ganho*perfil[b];
+    if(sobra > 0) excesso += sobra;
+  }
+  return 10*Math.log10(1 + excesso/(ganho*somaPerfil));
+}
+/* FIM FUNÇÃO: medirVoz */
+
+/* INÍCIO FUNÇÃO: fecharPerfil — termina de aprender a música da introdução */
+function fecharPerfil(){
+  if(!perfil || !perfilN) return;
+  const [ini, fim] = faixaVoz();
+  let soma = 0;
+  for(let b=ini;b<=fim;b++){ perfil[b] = Math.max(perfil[b]/perfilN, 1e-12); soma += perfil[b]; }
+  somaPerfil = Math.max(soma, 1e-12);
+  gravesIntro = Math.max(gravesIntro/perfilN, 1e-12);
+}
+/* FIM FUNÇÃO: fecharPerfil */
+
 /* INÍCIO FUNÇÃO: detectarTom — descobre a nota (frequência) que está soando */
 function detectarTom(){
   // Método da "autocorrelação": procura de quanto em quanto tempo a onda se repete
@@ -454,8 +517,8 @@ function detectarTom(){
 /* INÍCIO FUNÇÃO: calcularPartes — transforma os contadores em porcentagens */
 function calcularPartes(){
   const q = Math.max(est.quadros,1);
-  const presenca = Math.min(1, (est.comVoz/q)/0.6);   // 60% do tempo cantando já vale nota cheia
-  const energia = est.comVoz ? Math.min(1, Math.max(0, (est.somaEnergia/est.comVoz - 6)/22)) : 0;
+  const presenca = Math.min(1, (est.comVoz/q)/0.5);   // cantando metade do tempo já vale nota cheia (músicas têm partes só instrumentais)
+  const energia = est.comVoz ? Math.min(1, Math.max(0, (est.somaEnergia/est.comVoz - 2)/6)) : 0;
   const firmeza = est.comTom > 10 ? Math.min(1, (est.firmes/est.comTom)/0.75) : 0;
   return {presenca, energia, firmeza};
 }
@@ -464,23 +527,22 @@ function calcularPartes(){
 /* INÍCIO FUNÇÃO: ciclo — roda 20 vezes por segundo ouvindo o microfone */
 function ciclo(){
   analisador.getFloatTimeDomainData(buf);
-  const db = medirVolume();
-  const acima = db - pisoRuido;
-  $('nivel').style.width = Math.max(0, Math.min(100, acima*3.5)) + '%';
-  // A caveira do palco abre a boca conforme o volume
-  const boca = fase==='cantando' ? Math.max(0, Math.min(14, (acima-6)*0.6)) : 0;
+  const voz = medirVoz();                 // dB de voz ACIMA da música
+  $('nivel').style.width = Math.max(0, Math.min(100, voz*8)) + '%';
+  // A caveira do palco abre a boca só quando percebe VOZ
+  const boca = fase==='cantando' ? Math.max(0, Math.min(14, (voz-2)*1.6)) : 0;
   $('mandViva').setAttribute('transform', 'translate(0,'+boca.toFixed(1)+')');
   $('mandTV').setAttribute('transform', 'translate(0,'+boca.toFixed(1)+')');
   $('nivelTV').style.width = $('nivel').style.width;
 
-  if(fase==='calibrando'){ calib.push(db); return; }
+  if(fase==='calibrando') return;
   if(fase!=='cantando') return;
 
   est.quadros++;
   let tomAgora = 0;
-  if(acima > 8){                      // tem som acima do ambiente = está cantando
+  if(voz > 2){                        // tem voz acima da música = está cantando
     est.comVoz++;
-    est.somaEnergia += acima;
+    est.somaEnergia += voz;
     const t = detectarTom();
     if(t.clareza > 0.6 && t.freq){
       est.comTom++;
@@ -533,17 +595,21 @@ async function comecar(){
   $('btnTerminar').classList.remove('escondido');
   if(!timer) timer = setInterval(ciclo, 50);
 
-  // Calibração: 2 segundos de silêncio para medir o barulho do ambiente
+  // Calibração: ouve 5 segundos da introdução (só a música) para aprender o "som da música"
+  historico = []; nivelSuave = null; perfil = null; perfilN = 0; gravesIntro = 0;
   fase = 'calibrando';
-  for(let s=2; s>0; s--){ $('status').textContent = 'Silêncio... medindo o ambiente ('+s+')'; await esperar(1000); }
+  if(modo==='video' && player) player.playVideo();
+  for(let s=5; s>0; s--){
+    $('status').textContent = 'Ouvindo a introdução... não cante ainda ('+s+')';
+    $('hudStatus').textContent = 'Não cante ainda ('+s+')';
+    await esperar(1000);
+  }
   if(fase!=='calibrando') return;
-  const ord = calib.slice().sort((a,b)=>a-b);
-  pisoRuido = Math.max(-75, ord[Math.floor(ord.length/2)] || -60);
+  fecharPerfil();
 
   fase = 'cantando';
   atualizarHud();
-  $('status').textContent = '🎤 SOLTA A VOZ!';
-  if(modo==='video' && player) player.playVideo();
+  $('status').textContent = 'SOLTA A VOZ!';
 }
 /* FIM FUNÇÃO: comecar */
 
@@ -555,7 +621,7 @@ function esperar(ms){ return new Promise(r=>setTimeout(r,ms)); }
 function notaParcial(){
   const p = calcularPartes();
   const q = Math.max(est.quadros,1);
-  if(est.comVoz/q < 0.05) return Math.round(20*Math.min(1, est.comVoz/Math.max(1,q*0.05)));
+  if(est.comVoz/q < 0.08) return Math.round(15*Math.min(1, est.comVoz/Math.max(1,q*0.08)));
   return Math.min(100, Math.round(30 + (0.4*p.presenca + 0.3*p.energia + 0.3*p.firmeza)*70));
 }
 /* FIM FUNÇÃO: notaParcial */
@@ -573,7 +639,7 @@ function mostrarTermometro(n){
 function calcularNota(){
   const p = calcularPartes();
   const q = Math.max(est.quadros,1);
-  if(est.quadros < 60 || est.comVoz/q < 0.05) return {nota: 10 + Math.round(Math.random()*10), p};
+  if(est.quadros < 60 || est.comVoz/q < 0.08) return {nota: 5 + Math.round(Math.random()*10), p};   // não cantou = morreu
   const bruto = 0.4*p.presenca + 0.3*p.energia + 0.3*p.firmeza;
   return {nota: Math.min(100, Math.round(30 + bruto*70)), p};
 }
@@ -745,6 +811,15 @@ async function sairModoTV(){
   if(document.fullscreenElement){ try{ await document.exitFullscreen(); }catch(e){} }
 }
 /* FIM FUNÇÃO: sairModoTV */
+
+/* INÍCIO FUNÇÃO: trocarFiltro — guarda a escolha e religa o microfone com o filtro novo */
+function trocarFiltro(){
+  try{ localStorage.setItem('bkl_filtro', $('filtroVoz').checked ? '1' : '0'); }catch(e){}
+  if(fluxo){ fluxo.getTracks().forEach(t=>t.stop()); try{ microfone.disconnect(); }catch(e){} fluxo = null; }
+}
+/* FIM FUNÇÃO: trocarFiltro */
+try{ $('filtroVoz').checked = localStorage.getItem('bkl_filtro')==='1'; }catch(e){}
+$('filtroVoz').onchange = trocarFiltro;
 
 $('btnModoTV').onclick = entrarModoTV;
 $('btnTVSair').onclick = sairModoTV;
