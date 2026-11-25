@@ -163,6 +163,21 @@ body.modoTV #hudTV{display:flex;position:absolute;right:8px;top:8px;bottom:auto;
 .opcao{display:flex;gap:10px;align-items:flex-start;margin:12px 0 0;color:var(--texto);font-size:15px;cursor:pointer}
 .opcao input{width:22px;height:22px;min-height:0;margin:1px 0 0;flex:none;accent-color:#d4a017}
 .opcao small{color:var(--fraco);font-size:13px}
+.ensinar{margin-top:12px}
+.ensinar .btn{width:100%}
+#vozStatus{margin-top:8px}
+#vozStatus.ok{color:#7dffb0}
+#vozStatus.grava{color:var(--amarelo);font-weight:700;font-size:16px}
+/* ---------- Busca de vídeos ---------- */
+#resultados{display:grid;gap:8px;margin-top:10px}
+.res{display:flex;gap:10px;align-items:center;width:100%;text-align:left;padding:6px;border-radius:12px;cursor:pointer;
+  border:1px solid var(--borda);background:rgba(0,0,0,.3);color:var(--texto);font:15px "Exo 2",system-ui,sans-serif;min-height:60px}
+.res:hover,.res:focus-visible{border-color:var(--amarelo)}
+.res img{width:96px;height:54px;object-fit:cover;border-radius:8px;flex:none;background:#000}
+.res b{display:block;font-weight:600;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.res small{color:var(--fraco);font-size:13px}
+.config{margin-top:10px;color:var(--fraco);font-size:14px}
+.config summary{cursor:pointer;padding:6px 0}
 </style>
 </head>
 <body>
@@ -227,7 +242,20 @@ body.modoTV #hudTV{display:flex;position:absolute;right:8px;top:8px;bottom:auto;
       <button class="aba" id="abaFora">YouTube em outro aparelho</button>
     </div>
     <div id="modoVideo">
-      <label for="link">Cole o link do vídeo de karaokê do YouTube</label>
+      <label for="busca">Buscar música</label>
+      <div class="linha">
+        <input id="busca" type="search" placeholder="Ex.: Evidências" autocomplete="off" enterkeyhint="search">
+        <button class="btn" id="btnBuscar">Buscar</button>
+      </div>
+      <label class="opcao" style="margin-top:8px"><input type="checkbox" id="addKaraoke" checked><span>Acrescentar "karaokê" na busca</span></label>
+      <p class="aviso escondido" id="avisoBusca"></p>
+      <div id="resultados"></div>
+      <details class="config">
+        <summary>Configurar a busca (chave do YouTube)</summary>
+        <input id="chaveYT" placeholder="Cole aqui a chave do YouTube" autocomplete="off">
+        <p class="dica">A chave fica guardada só neste celular.</p>
+      </details>
+      <label for="link">Ou cole o link do vídeo</label>
       <div class="linha">
         <input id="link" type="url" placeholder="https://youtube.com/watch?v=..." autocomplete="off">
         <button class="btn fantasma" id="btnCarregar">Carregar</button>
@@ -251,7 +279,7 @@ body.modoTV #hudTV{display:flex;position:absolute;right:8px;top:8px;bottom:auto;
       <button class="btn rosa" id="btnModoTV" style="width:100%;margin-top:10px">MODO TV (tela cheia, deitado)</button>
     </div>
     <div id="modoFora" class="escondido">
-      <p class="dica">Coloque o vídeo para tocar na TV ou em outro celular. Aperte <b>Começar</b> aqui assim que a <b>introdução</b> da música iniciar (antes de cantar) e <b>Terminar</b> quando acabar.</p>
+      <p class="dica">Coloque o vídeo para tocar na TV ou em outro celular. Aperte <b>Começar</b> aqui e <b>depois</b> dê o play na TV. O app espera a música começar sozinho e <b>Terminar</b> quando acabar.</p>
     </div>
   </section>
 
@@ -259,7 +287,12 @@ body.modoTV #hudTV{display:flex;position:absolute;right:8px;top:8px;bottom:auto;
   <section class="card">
     <h2><svg class="ico" viewBox="0 0 100 112"><use href="#cav"/></svg>2. Quem vai cantar?</h2>
     <input id="cantor" placeholder="Nome do cantor" maxlength="30">
-    <label class="opcao"><input type="checkbox" id="filtroVoz"><span>Filtro de voz do celular<br><small>Experimental: teste ligado e desligado e veja qual acerta mais.</small></span></label>
+    <div class="ensinar">
+      <button class="btn rosa" id="btnEnsinar">ENSINAR MINHA VOZ (10 s)</button>
+      <div id="vozStatus" class="dica">Opcional: o app aprende o timbre da sua voz e passa a ignorar melhor os instrumentos.</div>
+      <div class="barra escondido" id="barraEnsino"><i id="nivelEnsino"></i></div>
+    </div>
+    <label class="opcao"><input type="checkbox" id="filtroVoz"><span>Filtro de voz do celular<br><small>Experimental. Atenção: em alguns celulares ele tira o som da caixa Bluetooth. Se o som sumir, desmarque.</small></span></label>
     <p class="dica">Deixe o celular perto de quem canta e longe da caixa de som. Ao tocar em Começar, não cante nos primeiros 5 segundos: o app está aprendendo o som da música.</p>
   </section>
 
@@ -323,6 +356,10 @@ let est = null;              // estatísticas da apresentação
 const buf = new Float32Array(2048);
 const trilha = [];
 const freqBuf = new Float32Array(1024);   // "fatias" de frequência do som
+let vozAprendida = null;                  // o timbre do cantor (20 faixas), se ele ensinou a voz
+let ensinando = false;                     // true enquanto grava os 10 segundos
+const NB = 20;                             // número de faixas do timbre
+const LIMIAR_VOZ = 0.40;                   // abaixo disso, o som não parece a voz aprendida
 let media = null, intro = null, introN = 0, introPronta = false, janela = [];   // o som da música: aprendido na introdução e em média longa
 let gravesJan = [], gravesIntro = 0;                               // graves, para saber o volume da música           // histórico de tons para o desenho
 
@@ -331,6 +368,73 @@ function novasEstatisticas(){
   return {quadros:0, comVoz:0, somaEnergia:0, comTom:0, firmes:0, tomAnterior:0};
 }
 /* FIM FUNÇÃO: novasEstatisticas */
+
+// Chave da API do YouTube para a busca. Pode ficar vazia: aí o app usa a que foi colada em "Configurar a busca".
+const CHAVE_YOUTUBE = 'AIzaSyAzngorhrP6NH4rQhFnKm2kI_uCC1qgG98';   // travada para funcionar só em betodigital08.github.io
+
+/* INÍCIO FUNÇÃO: chaveYoutube — pega a chave da busca (do código ou a colada no app) */
+function chaveYoutube(){
+  if(CHAVE_YOUTUBE) return CHAVE_YOUTUBE;
+  try{ return (localStorage.getItem('bkl_chave_yt')||'').trim(); }catch(e){ return ''; }
+}
+/* FIM FUNÇÃO: chaveYoutube */
+
+/* INÍCIO FUNÇÃO: avisoBusca — mostra ou esconde a mensagem da busca */
+function avisoBusca(txt){ $('avisoBusca').textContent = txt||''; $('avisoBusca').classList.toggle('escondido', !txt); }
+/* FIM FUNÇÃO: avisoBusca */
+
+/* INÍCIO FUNÇÃO: limparTexto — evita que títulos com símbolos quebrem a tela */
+function limparTexto(t){
+  const d = document.createElement('textarea'); d.innerHTML = t||'';     // converte &amp; &#39; etc.
+  return d.value.replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+/* FIM FUNÇÃO: limparTexto */
+
+/* INÍCIO FUNÇÃO: buscarVideos — procura no YouTube só vídeos que podem tocar dentro do app */
+async function buscarVideos(){
+  let termo = $('busca').value.trim();
+  if(!termo){ avisoBusca('Digite o nome da música ou do cantor.'); return; }
+  const chave = chaveYoutube();
+  if(!chave){ avisoBusca('Falta a chave do YouTube. Abra "Configurar a busca" e cole a chave.'); $('resultados').innerHTML=''; return; }
+  if($('addKaraoke').checked && !/karaok/i.test(termo)) termo += ' karaokê';
+  avisoBusca('Buscando...');
+  $('resultados').innerHTML = '';
+  const url = 'https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=12'
+    + '&videoEmbeddable=true&videoSyndicated=true&regionCode=BR&relevanceLanguage=pt'
+    + '&q=' + encodeURIComponent(termo) + '&key=' + encodeURIComponent(chave);
+  let dados;
+  try{
+    const r = await fetch(url);
+    dados = await r.json();
+    if(!r.ok){
+      const motivo = (dados.error && dados.error.errors && dados.error.errors[0] && dados.error.errors[0].reason) || '';
+      if(motivo==='quotaExceeded') avisoBusca('Acabaram as buscas grátis de hoje. Amanhã volta. Até lá, cole o link do vídeo.');
+      else if(/keyInvalid|badRequest/.test(motivo)) avisoBusca('A chave do YouTube está errada. Confira em "Configurar a busca".');
+      else if(r.status===403) avisoBusca('A chave do YouTube não está liberada para este site. Confira a configuração da chave.');
+      else avisoBusca('Não consegui buscar agora (erro ' + r.status + '). Tente de novo.');
+      return;
+    }
+  }catch(e){ avisoBusca('Sem internet ou o YouTube não respondeu. Tente de novo.'); return; }
+  const itens = (dados.items||[]).filter(i=>i.id && i.id.videoId);
+  if(!itens.length){ avisoBusca('Nada encontrado. Tente outro nome.'); return; }
+  avisoBusca('');
+  $('resultados').innerHTML = itens.map(i=>{
+    const sn = i.snippet||{}, th = (sn.thumbnails && (sn.thumbnails.medium||sn.thumbnails.default)) || {};
+    return '<button class="res" data-id="'+i.id.videoId+'"><img src="'+limparTexto(th.url)+'" alt="" loading="lazy">'
+      + '<span><b>'+limparTexto(sn.title)+'</b><small>'+limparTexto(sn.channelTitle)+'</small></span></button>';
+  }).join('');
+}
+/* FIM FUNÇÃO: buscarVideos */
+
+/* INÍCIO FUNÇÃO: escolherVideo — toca no resultado: coloca o vídeo no app */
+function escolherVideo(e){
+  const b = e.target.closest('.res'); if(!b) return;
+  $('link').value = 'https://youtu.be/' + b.dataset.id;
+  $('resultados').innerHTML = '';
+  carregarVideo();
+  $('caixaVideo').scrollIntoView({behavior:'smooth', block:'center'});
+}
+/* FIM FUNÇÃO: escolherVideo */
 
 /* INÍCIO FUNÇÃO: trocarModo — alterna entre vídeo no app e outro aparelho */
 function trocarModo(novo){
@@ -420,7 +524,20 @@ async function ligarMicrofone(){
   if(fluxo) return true;
   try{
     const filtro = $('filtroVoz').checked;
-    fluxo = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:filtro,noiseSuppression:filtro,autoGainControl:false}});
+    const config = {echoCancellation:filtro, noiseSuppression:filtro, autoGainControl:false};
+    fluxo = await navigator.mediaDevices.getUserMedia({audio:config});
+    // Se o Android escolheu o microfone da caixa Bluetooth, troca pelo do celular
+    // (o microfone da caixa põe o Bluetooth em "modo ligação" e o som some da caixa)
+    const ehBluetooth = r => /bluetooth|\bbt\b|headset|hands.?free|sco/i.test(r||'');
+    const faixa = fluxo.getAudioTracks()[0];
+    if(faixa && ehBluetooth(faixa.label)){
+      const aparelhos = (await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='audioinput' && !ehBluetooth(d.label));
+      const doCelular = aparelhos.find(d=>/speaker|built|intern|phone|default|padr/i.test(d.label)) || aparelhos[0];
+      if(doCelular){
+        fluxo.getTracks().forEach(t=>t.stop());
+        fluxo = await navigator.mediaDevices.getUserMedia({audio:{...config, deviceId:{exact:doCelular.deviceId}}});
+      }
+    }
   }catch(e){
     $('status').textContent = 'Preciso do microfone! Libere a permissão no navegador.';
     return false;
@@ -432,6 +549,23 @@ async function ligarMicrofone(){
   return true;
 }
 /* FIM FUNÇÃO: ligarMicrofone */
+
+/* INÍCIO FUNÇÃO: desligarMicrofone — solta o microfone do celular (o Bluetooth volta ao normal) */
+function desligarMicrofone(){
+  if(fluxo){ fluxo.getTracks().forEach(t=>t.stop()); fluxo = null; }
+  try{ microfone && microfone.disconnect(); }catch(e){}
+}
+/* FIM FUNÇÃO: desligarMicrofone */
+
+/* INÍCIO FUNÇÃO: energiaAgora — volume atual na faixa da voz (para saber se a música começou) */
+function energiaAgora(){
+  const b2 = new Float32Array(analisador.frequencyBinCount);
+  analisador.getFloatFrequencyData(b2);
+  const [ini, fim] = faixaVoz();
+  let t = 0; for(let b=ini;b<=fim;b++) t += Math.pow(10, b2[b]/10);
+  return t;
+}
+/* FIM FUNÇÃO: energiaAgora */
 
 /* INÍCIO FUNÇÃO: medirVolume — calcula o volume atual em decibéis (dB) */
 function medirVolume(){
@@ -448,6 +582,98 @@ function faixaVoz(){
   return [Math.max(1, Math.floor(300/hz)), Math.min(freqBuf.length-1, Math.ceil(3500/hz))];
 }
 /* FIM FUNÇÃO: faixaVoz */
+
+/* INÍCIO FUNÇÃO: faixaDoBin — em qual das 20 faixas do timbre cai cada "fatia" de frequência */
+function faixaDoBin(b){
+  const f = b*ctx.sampleRate/analisador.fftSize;
+  return Math.min(NB-1, Math.max(0, Math.floor(NB*Math.log(f/300)/Math.log(3500/300))));
+}
+/* FIM FUNÇÃO: faixaDoBin */
+
+/* INÍCIO FUNÇÃO: parecidoComVoz — quanto um som se parece com a voz aprendida (0 = nada, 1 = igual) */
+function parecidoComVoz(faixas){
+  let soma = 0; for(const x of faixas) soma += x;
+  if(soma <= 0) return 0;
+  let s = 0;
+  for(let k=0;k<NB;k++) s += Math.sqrt((faixas[k]/soma) * vozAprendida[k]);
+  return s;
+}
+/* FIM FUNÇÃO: parecidoComVoz */
+
+/* INÍCIO FUNÇÃO: chaveVoz — nome do cantor usado para guardar a voz no celular */
+function chaveVoz(){ return 'bkl_voz_' + ($('cantor').value.trim().toLowerCase() || 'sem-nome'); }
+/* FIM FUNÇÃO: chaveVoz */
+
+/* INÍCIO FUNÇÃO: carregarVoz — procura a voz já aprendida para o nome digitado */
+function carregarVoz(){
+  vozAprendida = null;
+  try{ const v = JSON.parse(localStorage.getItem(chaveVoz())||'null'); if(v && v.length===NB) vozAprendida = v; }catch(e){}
+  const nome = $('cantor').value.trim() || 'sem nome';
+  $('vozStatus').className = 'dica' + (vozAprendida ? ' ok' : '');
+  $('vozStatus').textContent = vozAprendida
+    ? 'Voz de ' + nome + ' aprendida. O app vai focar nela.'
+    : 'Opcional: o app aprende o timbre da sua voz e passa a ignorar melhor os instrumentos.';
+  $('btnEnsinar').textContent = vozAprendida ? 'REAPRENDER MINHA VOZ (10 s)' : 'ENSINAR MINHA VOZ (10 s)';
+}
+/* FIM FUNÇÃO: carregarVoz */
+
+/* INÍCIO FUNÇÃO: ensinarVoz — grava 10 segundos da pessoa cantando SEM música e aprende o timbre */
+async function ensinarVoz(){
+  if(fase!=='parado' || ensinando) return;
+  if(!await ligarMicrofone()) return;
+  ensinando = true;
+  $('btnEnsinar').disabled = true; $('btnComecar').disabled = true;
+  $('barraEnsino').classList.remove('escondido');
+  $('vozStatus').className = 'dica grava';
+  const buf2 = new Float32Array(analisador.frequencyBinCount);
+  const [ini, fim] = faixaVoz();
+  // contagem regressiva: a pessoa ainda está calada, então o app mede o barulho do ambiente
+  const ambiente = [];
+  for(let s=3; s>0; s--){
+    $('vozStatus').textContent = 'Sem música! Prepare-se para cantar... ' + s;
+    for(let k=0;k<20;k++){
+      analisador.getFloatFrequencyData(buf2);
+      let t = 0; for(let b=ini;b<=fim;b++) t += Math.pow(10, buf2[b]/10);
+      ambiente.push(t); await esperar(50);
+    }
+  }
+  ambiente.sort((a,b)=>a-b);
+  const silencio = ambiente[Math.floor(ambiente.length*0.5)] || 1e-12;
+  const quadros = [];                       // cada medição: energia + timbre
+  const fim10 = Date.now() + 10000;
+  while(Date.now() < fim10){
+    const resta = Math.ceil((fim10-Date.now())/1000);
+    $('vozStatus').textContent = 'CANTE AGORA! (' + resta + ')  pode ser qualquer trecho';
+    analisador.getFloatFrequencyData(buf2);
+    const fx = new Array(NB).fill(0); let tot = 0;
+    for(let b=ini;b<=fim;b++){ const p = Math.pow(10, buf2[b]/10); fx[faixaDoBin(b)] += p; tot += p; }
+    quadros.push({tot, fx});
+    $('nivelEnsino').style.width = Math.max(0, Math.min(100, (10*Math.log10(tot+1e-12)+80)*1.6)) + '%';
+    await esperar(50);
+  }
+  // usa só os momentos em que a pessoa estava cantando (os 50% mais fortes)
+  const ord = quadros.map(q=>q.tot).sort((a,b)=>a-b);
+  const corte = ord[Math.floor(ord.length*0.5)];
+  const media = new Array(NB).fill(0); let usados = 0;
+  for(const q of quadros){
+    if(q.tot < corte || q.tot <= 0) continue;
+    for(let k=0;k<NB;k++) media[k] += q.fx[k]/q.tot;
+    usados++;
+  }
+  ensinando = false;
+  desligarMicrofone();
+  $('btnEnsinar').disabled = false; $('btnComecar').disabled = false;
+  $('barraEnsino').classList.add('escondido');
+  if(usados < 20 || 10*Math.log10(corte/Math.max(silencio,1e-12)) < 6){
+    $('vozStatus').className = 'dica grava';
+    $('vozStatus').textContent = 'Não ouvi bem a sua voz. Cante mais alto e perto do celular e tente de novo.';
+    return;
+  }
+  for(let k=0;k<NB;k++) media[k] /= usados;
+  try{ localStorage.setItem(chaveVoz(), JSON.stringify(media)); }catch(e){}
+  carregarVoz();
+}
+/* FIM FUNÇÃO: ensinarVoz */
 
 /* INÍCIO FUNÇÃO: medirVoz — quanto de VOZ existe acima do som da música (em dB)
    Como funciona:
@@ -491,15 +717,20 @@ function medirVoz(){
   const gravesAgora = gravesJan.reduce((x,y)=>x+y,0)/gravesJan.length;
   const ganho = Math.min(8, Math.max(0.25, gravesAgora/gravesIntro));
   let excesso = 0, somaRef = 0;
+  const sobraFx = new Array(NB).fill(0);   // o som que sobrou, separado nas 20 faixas do timbre
   for(let i=0;i<n;i++){
     let chao = Infinity;                                 // o mais baixo dos últimos 6 s
     for(let k=0;k<janela.length;k++) if(janela[k][i] < chao) chao = janela[k][i];
     const ref = 2.0*Math.max(ganho*intro[i], 1.5*chao);  // o que a música sozinha teria
     somaRef += ref;
     const sobra = atual[i] - ref;
-    if(sobra > 0) excesso += sobra;
+    if(sobra > 0){ excesso += sobra; sobraFx[faixaDoBin(ini+i)] += sobra; }
   }
-  return 10*Math.log10(1 + excesso/somaRef);
+  const vdb = 10*Math.log10(1 + excesso/somaRef);
+  if(!vozAprendida) return vdb;
+  // o som que sobrou acima da música se parece com a voz aprendida?
+  const fator = Math.min(1, Math.max(0, (parecidoComVoz(sobraFx) - LIMIAR_VOZ)/0.15));
+  return vdb*fator;
 }
 /* FIM FUNÇÃO: medirVoz */
 
@@ -592,6 +823,7 @@ function desenharTrilha(){
 
 /* INÍCIO FUNÇÃO: comecar — calibra o ambiente e inicia a avaliação */
 async function comecar(){
+  if(ensinando) return;
   if(modo==='video' && !playerPronto){ mostrarAviso('Carregue um vídeo primeiro (cole o link e toque em Carregar).'); return; }
   if(!await ligarMicrofone()) return;
   try{ travaTela = await navigator.wakeLock.request('screen'); }catch(e){}
@@ -601,10 +833,36 @@ async function comecar(){
   $('btnTerminar').classList.remove('escondido');
   if(!timer) timer = setInterval(ciclo, 50);
 
-  // Calibração: ouve 5 segundos da introdução (só a música) para aprender o "som da música"
+  // 1) Mede o silêncio da sala por meio segundo, ANTES da música
+  fase = 'esperando';
+  const sala = [];
+  for(let k=0;k<10;k++){ sala.push(energiaAgora()); await esperar(50); }
+  sala.sort((a,b)=>a-b);
+  const silencio = Math.max(sala[5] || 1e-12, 1e-12);
+  // 2) Dá o play e ESPERA a música começar de verdade (vídeo carregando, propaganda, play na TV)
+  if(modo==='video' && player) player.playVideo();
+  let seguidos = 0;
+  const inicioEspera = Date.now();
+  while(fase==='esperando'){
+    $('status').textContent = modo==='video' ? 'Esperando a música começar...' : 'Dê o play na TV. Esperando a música...';
+    $('hudStatus').textContent = 'Esperando a música...';
+    if(modo==='video' && player && player.getCurrentTime){
+      // vídeo no app: o próprio YouTube diz se a música já está andando (propaganda e carregamento não contam)
+      let tempo = 0, estado = -1;
+      try{ tempo = player.getCurrentTime()||0; estado = player.getPlayerState(); }catch(e){}
+      if(estado===1 && tempo > 0.6) break;                         // tocando há mais de meio segundo
+    }else{
+      // YouTube em outro aparelho: espera o som subir 10 dB acima do silêncio da sala por 1 segundo
+      seguidos = (energiaAgora() > silencio*10) ? seguidos+1 : 0;
+      if(seguidos >= 20) break;
+      if(Date.now() - inicioEspera > 8000) break;                  // a música já estava tocando antes
+    }
+    await esperar(50);
+  }
+  if(fase!=='esperando') return;
+  // 3) Calibração: ouve 5 segundos da introdução (só a música) para aprender o "som da música"
   media = null; intro = null; introN = 0; introPronta = false; janela = []; gravesJan = []; gravesIntro = 0;
   fase = 'calibrando';
-  if(modo==='video' && player) player.playVideo();
   for(let s=5; s>0; s--){
     $('status').textContent = 'Ouvindo a introdução... não cante ainda ('+s+')';
     $('hudStatus').textContent = 'Não cante ainda ('+s+')';
@@ -725,8 +983,8 @@ function tocarRisada(){
 
 /* INÍCIO FUNÇÃO: terminar — para de ouvir e mostra a nota com suspense */
 async function terminar(){
-  if(fase!=='cantando' && fase!=='calibrando') return;
-  const estavaCalibrando = fase==='calibrando';
+  if(fase!=='cantando' && fase!=='calibrando' && fase!=='esperando') return;
+  const estavaCalibrando = fase!=='cantando';
   fase = 'parado';
   atualizarHud();
   if(player && modo==='video'){ try{ player.pauseVideo(); }catch(e){} }
@@ -734,6 +992,7 @@ async function terminar(){
   $('btnTerminar').classList.add('escondido');
   $('btnComecar').classList.remove('escondido');
   $('status').textContent = 'Pronto para começar';
+  desligarMicrofone();                 // solta o microfone: o Bluetooth volta ao modo música
   if(estavaCalibrando) return;
 
   const {nota, p} = calcularNota();
@@ -785,6 +1044,11 @@ function mostrarRanking(){
 $('abaVideo').onclick = ()=>trocarModo('video');
 $('abaFora').onclick = ()=>trocarModo('fora');
 $('btnCarregar').onclick = carregarVideo;
+$('btnBuscar').onclick = buscarVideos;
+$('busca').addEventListener('keydown', e=>{ if(e.key==='Enter') buscarVideos(); });
+$('resultados').addEventListener('click', escolherVideo);
+try{ $('chaveYT').value = localStorage.getItem('bkl_chave_yt')||''; }catch(e){}
+$('chaveYT').addEventListener('change', ()=>{ try{ localStorage.setItem('bkl_chave_yt', $('chaveYT').value.trim()); }catch(e){} });
 $('link').addEventListener('keydown', e=>{ if(e.key==='Enter') carregarVideo(); });
 $('btnComecar').onclick = comecar;
 $('btnTerminar').onclick = terminar;
@@ -825,6 +1089,9 @@ function trocarFiltro(){
 /* FIM FUNÇÃO: trocarFiltro */
 try{ $('filtroVoz').checked = localStorage.getItem('bkl_filtro')==='1'; }catch(e){}
 $('filtroVoz').onchange = trocarFiltro;
+$('btnEnsinar').onclick = ensinarVoz;
+$('cantor').addEventListener('input', carregarVoz);
+carregarVoz();
 
 $('btnModoTV').onclick = entrarModoTV;
 $('btnTVSair').onclick = sairModoTV;
