@@ -1,5 +1,5 @@
 // Service worker do Canta ou Morre: permite instalar o app e abrir a tela inicial mesmo com internet fraca.
-const CACHE = 'canta-ou-morre-v1';
+const CACHE = 'canta-ou-morre-v3';
 const ARQUIVOS = ['./', './index.html', './manifest.json', './icone-192.png', './icone-512.png'];
 
 // INÍCIO FUNÇÃO: instalar — guarda os arquivos do app no celular
