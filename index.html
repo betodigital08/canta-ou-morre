@@ -298,10 +298,10 @@ body.modoTV #hudTV{display:flex;position:absolute;right:8px;top:8px;bottom:auto;
     <input id="cantor" placeholder="Nome do cantor" maxlength="30">
     <div class="ensinar">
       <button class="btn rosa" id="btnEnsinar">ENSINAR MINHA VOZ (10 s)</button>
-      <div id="vozStatus" class="dica">Opcional: o app aprende o timbre da sua voz e passa a ignorar melhor os instrumentos.</div>
+      <div id="vozStatus" class="dica">Dica: ensine sua voz (10 s) para a nota ficar mais justa. Sem isso, solos de instrumento podem contar como voz.</div>
       <div class="barra escondido" id="barraEnsino"><i id="nivelEnsino"></i></div>
     </div>
-    <label class="opcao"><input type="checkbox" id="filtroVoz"><span>Filtro de voz do celular<br><small>Experimental. Atenção: em alguns celulares ele tira o som da caixa Bluetooth. Se o som sumir, desmarque.</small></span></label>
+
     <p class="dica">Deixe o celular perto de quem canta e longe da caixa de som. Ao tocar em Começar, não cante nos primeiros 5 segundos: o app está aprendendo o som da música.</p>
   </section>
 
@@ -532,7 +532,7 @@ async function ligarMicrofone(){
   if(ctx.state==='suspended') await ctx.resume();
   if(fluxo) return true;
   try{
-    const filtro = $('filtroVoz').checked;
+    const filtro = false;   // filtro do celular desligado sempre: ele punha o Bluetooth em 'modo ligação' e o som sumia da caixa
     const config = {echoCancellation:filtro, noiseSuppression:filtro, autoGainControl:false};
     fluxo = await navigator.mediaDevices.getUserMedia({audio:config});
     // Se o Android escolheu o microfone da caixa Bluetooth, troca pelo do celular
@@ -600,11 +600,11 @@ function faixaDoBin(b){
 /* FIM FUNÇÃO: faixaDoBin */
 
 /* INÍCIO FUNÇÃO: parecidoComVoz — quanto um som se parece com a voz aprendida (0 = nada, 1 = igual) */
-function parecidoComVoz(faixas){
+function parecidoComVoz(faixas, modelo){
   let soma = 0; for(const x of faixas) soma += x;
   if(soma <= 0) return 0;
   let s = 0;
-  for(let k=0;k<NB;k++) s += Math.sqrt((faixas[k]/soma) * vozAprendida[k]);
+  for(let k=0;k<NB;k++) s += Math.sqrt((faixas[k]/soma) * modelo[k]);
   return s;
 }
 /* FIM FUNÇÃO: parecidoComVoz */
@@ -621,7 +621,7 @@ function carregarVoz(){
   $('vozStatus').className = 'dica' + (vozAprendida ? ' ok' : '');
   $('vozStatus').textContent = vozAprendida
     ? 'Voz de ' + nome + ' aprendida. O app vai focar nela.'
-    : 'Opcional: o app aprende o timbre da sua voz e passa a ignorar melhor os instrumentos.';
+    : 'Dica: ensine sua voz (10 s) para a nota ficar mais justa. Sem isso, solos de instrumento podem contar como voz.';
   $('btnEnsinar').textContent = vozAprendida ? 'REAPRENDER MINHA VOZ (10 s)' : 'ENSINAR MINHA VOZ (10 s)';
 }
 /* FIM FUNÇÃO: carregarVoz */
@@ -737,8 +737,8 @@ function medirVoz(){
   }
   const vdb = 10*Math.log10(1 + excesso/somaRef);
   if(!vozAprendida) return vdb;
-  // o som que sobrou acima da música se parece com a voz aprendida?
-  const fator = Math.min(1, Math.max(0, (parecidoComVoz(sobraFx) - LIMIAR_VOZ)/0.15));
+  // o som que sobrou acima da música se parece com a voz ensinada?
+  const fator = Math.min(1, Math.max(0, (parecidoComVoz(sobraFx, vozAprendida) - LIMIAR_VOZ)/0.15));
   return vdb*fator;
 }
 /* FIM FUNÇÃO: medirVoz */
@@ -901,7 +901,7 @@ const FAIXAS = [
 /* INÍCIO FUNÇÃO: cantou — a pessoa cantou o suficiente para ser avaliada? */
 function cantou(){
   const q = Math.max(est.quadros,1);
-  return est.comVoz/q >= 0.08;
+  return est.comVoz >= 60 && est.comVoz/q >= 0.08;     // pelo menos 3 segundos de voz e 8% da música
 }
 /* FIM FUNÇÃO: cantou */
 
@@ -1076,6 +1076,16 @@ async function terminar(){
   desligarMicrofone();                 // solta o microfone: o Bluetooth volta ao modo música
   if(estavaCalibrando) return;
 
+  // tempo mínimo: pelo menos 20 segundos de música depois da introdução
+  if(est.quadros < 400){
+    $('caveiraNota').classList.remove('gargalha');
+    $('cantorNota').textContent = $('cantor').value.trim() || 'Cantor misterioso';
+    $('nota').textContent = '--';
+    $('frase').textContent = 'Cedo demais!';
+    $('detalhes').textContent = 'As caveiras precisam ouvir pelo menos 20 segundos de música para dar a nota.';
+    $('telaNota').classList.add('mostrar');
+    return;
+  }
   const {nota, p} = calcularNota();
   const nome = $('cantor').value.trim() || 'Cantor misterioso';
   $('cantorNota').textContent = nome;
@@ -1148,34 +1158,31 @@ function atualizarHud(){
 /* FIM FUNÇÃO: atualizarHud */
 
 /* INÍCIO FUNÇÃO: entrarModoTV — vídeo ocupando a tela inteira
-   Não força o giro nem pede tela cheia ao Android: isso derrubava o espelhamento na TV.
+   Pede tela cheia, mas NÃO força o giro (o giro forçado derrubava o espelhamento na TV).
    A pessoa gira o celular com a mão, como no YouTube. */
-function entrarModoTV(){
+async function entrarModoTV(){
   if(!playerPronto){ mostrarAviso('Carregue um vídeo primeiro (busque a música ou cole o link).'); return; }
   document.body.classList.add('modoTV');
+  // tela cheia (esconde as barras), mas SEM forçar o giro: igual ao YouTube
+  try{ if(!document.fullscreenElement) await document.documentElement.requestFullscreen({navigationUI:'hide'}); }catch(e){}
   atualizarHud();
 }
 /* FIM FUNÇÃO: entrarModoTV */
 
 /* INÍCIO FUNÇÃO: sairModoTV — volta ao app normal */
-function sairModoTV(){
+async function sairModoTV(){
   document.body.classList.remove('modoTV');
+  if(document.fullscreenElement){ try{ await document.exitFullscreen(); }catch(e){} }
 }
 /* FIM FUNÇÃO: sairModoTV */
 
-/* INÍCIO FUNÇÃO: trocarFiltro — guarda a escolha e religa o microfone com o filtro novo */
-function trocarFiltro(){
-  try{ localStorage.setItem('bkl_filtro', $('filtroVoz').checked ? '1' : '0'); }catch(e){}
-  if(fluxo){ fluxo.getTracks().forEach(t=>t.stop()); try{ microfone.disconnect(); }catch(e){} fluxo = null; }
-}
-/* FIM FUNÇÃO: trocarFiltro */
-try{ $('filtroVoz').checked = localStorage.getItem('bkl_filtro')==='1'; }catch(e){}
-$('filtroVoz').onchange = trocarFiltro;
+try{ localStorage.removeItem('bkl_filtro'); }catch(e){}   // apaga a opção antiga de quem tinha marcado o filtro
 $('btnEnsinar').onclick = ensinarVoz;
 $('cantor').addEventListener('input', carregarVoz);
 carregarVoz();
 
 $('btnModoTV').onclick = entrarModoTV;
+document.addEventListener('fullscreenchange', ()=>{ if(!document.fullscreenElement) document.body.classList.remove('modoTV'); });
 $('btnTVSair').onclick = sairModoTV;
 $('btnTVAcao').onclick = ()=>{ fase==='cantando' ? terminar() : comecar(); };
 /* INÍCIO FUNÇÃO: tocarTrovao — estrondo grave de tempestade na abertura */
