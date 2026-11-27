@@ -185,6 +185,12 @@ body.modoTV #hudTV{display:flex;position:absolute;right:8px;top:8px;bottom:auto;
     font:700 15px "Exo 2",system-ui,sans-serif;color:var(--amarelo);text-align:center}
   #dicaGirar small{display:block;margin-top:4px;font-weight:400;font-size:12px;color:var(--fraco)}
 }
+/* ---------- Instalar o app ---------- */
+#caixaInstalar{margin:14px auto 0;max-width:360px}
+#btnInstalar{width:100%;border-color:rgba(212,160,23,.6);color:#f3e6b0}
+#dicaInstalar{margin:10px 0 0;padding:10px 12px;border-radius:12px;background:rgba(0,0,0,.45);
+  border:1px solid rgba(212,160,23,.4);color:var(--texto);font-size:15px;line-height:1.45;text-align:left}
+#dicaInstalar b{color:var(--amarelo)}
 </style>
 </head>
 <body>
@@ -232,6 +238,10 @@ body.modoTV #hudTV{display:flex;position:absolute;right:8px;top:8px;bottom:auto;
     <p class="marca">por Beto Legall</p>
     <p class="sub" style="margin-bottom:22px">Cante bem... ou junte-se a nós.</p>
     <button class="btn rosa grande" id="btnEntrar" style="max-width:360px">ENTRAR NO PALCO</button>
+    <div id="caixaInstalar" class="escondido">
+      <button class="btn fantasma" id="btnInstalar">INSTALAR O APP NO CELULAR</button>
+      <p id="dicaInstalar" class="escondido"></p>
+    </div>
   </div>
 </div>
 
@@ -1221,6 +1231,58 @@ if('serviceWorker' in navigator && location.protocol==='https:'){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
 /* FIM FUNÇÃO: registrarInstalacao */
+
+/* ================== BOTÃO "INSTALAR O APP" ================== */
+let pedidoInstalar = null;      // o pedido de instalação que o Chrome libera quando o app pode ser instalado
+
+/* INÍCIO FUNÇÃO: jaInstalado — o app já está aberto pelo ícone (instalado)? */
+function jaInstalado(){
+  return (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+}
+/* FIM FUNÇÃO: jaInstalado */
+
+/* INÍCIO FUNÇÃO: ondeEstaAberto — descobre se está no Chrome, no navegador do WhatsApp/Instagram ou no iPhone */
+function ondeEstaAberto(){
+  const ua = navigator.userAgent || '';
+  if(/iPhone|iPad|iPod/i.test(ua)) return 'iphone';
+  if(/; wv\)|WhatsApp|Instagram|FBAN|FBAV|FB_IAB|Line\/|Telegram/i.test(ua)) return 'interno';
+  return 'chrome';
+}
+/* FIM FUNÇÃO: ondeEstaAberto */
+
+/* INÍCIO FUNÇÃO: mostrarDicaInstalar — explica o caminho certo para instalar */
+function mostrarDicaInstalar(){
+  const onde = ondeEstaAberto(), d = $('dicaInstalar');
+  if(onde==='interno')
+    d.innerHTML = 'Você abriu o link <b>dentro do WhatsApp ou Instagram</b>, que não deixa instalar.<br>Toque nos <b>3 pontinhos ⋮</b> lá em cima e escolha <b>"Abrir no Chrome"</b>. Depois toque aqui de novo.';
+  else if(onde==='iphone')
+    d.innerHTML = 'No iPhone: abra no <b>Safari</b>, toque em <b>Compartilhar</b> (o quadrado com a seta para cima) e depois em <b>"Adicionar à Tela de Início"</b>.';
+  else
+    d.innerHTML = 'Toque nos <b>3 pontinhos ⋮</b> do Chrome e escolha <b>"Instalar app"</b> (ou "Adicionar à tela inicial").<br>Se já instalou, abra pelo <b>ícone da caveira</b> na tela do celular.';
+  d.classList.remove('escondido');
+}
+/* FIM FUNÇÃO: mostrarDicaInstalar */
+
+/* INÍCIO FUNÇÃO: instalarApp — abre a janela de instalação do Chrome ou mostra a explicação */
+async function instalarApp(){
+  if(pedidoInstalar){
+    pedidoInstalar.prompt();
+    const escolha = await pedidoInstalar.userChoice.catch(()=>null);
+    pedidoInstalar = null;
+    if(escolha && escolha.outcome==='accepted'){ $('caixaInstalar').classList.add('escondido'); return; }
+  }
+  mostrarDicaInstalar();
+}
+/* FIM FUNÇÃO: instalarApp */
+
+window.addEventListener('beforeinstallprompt', e=>{
+  e.preventDefault();             // guarda o pedido para usar no nosso botão
+  pedidoInstalar = e;
+  if(!jaInstalado()) $('caixaInstalar').classList.remove('escondido');
+});
+window.addEventListener('appinstalled', ()=>{ $('caixaInstalar').classList.add('escondido'); });
+if(!jaInstalado()) $('caixaInstalar').classList.remove('escondido');   // mostra o botão sempre que não estiver instalado
+$('btnInstalar').onclick = instalarApp;
 }
 </script>
 </body>
